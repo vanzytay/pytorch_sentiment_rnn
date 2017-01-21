@@ -17,7 +17,7 @@ test_sentences = []
 aspectTerms = []
 aspectCats = []
 words = []
-toy = True
+toy = False
 
 from string import punctuation
 def strip_punctuation(s):
@@ -143,7 +143,7 @@ for sent in train_sentences:
 	txt = sent['text']
 	tokenized_txt = [word_index[x] for x in txt]
 	actual_len = len(tokenized_txt)
-	tokenized_txt = sequence.pad_sequences([tokenized_txt],maxlen=max_len, padding='post')[0]
+	tokenized_txt = sequence.pad_sequences([tokenized_txt],maxlen=max_len)[0]
 	if('aspectCats' in sent and mode=='aspect'):
 		# print(len(sent['aspectCats']))
 		for pair in sent['aspectCats']:
@@ -161,7 +161,7 @@ for sent in train_sentences:
 		for pair in sent['aspectTerms']:
 			attr, value = pair[0],pair[1]
 			tokenized_terms = [word_index[x] for x in attr]
-			tokenized_terms = sequence.pad_sequences([tokenized_terms],maxlen=max_term_len, padding='post')[0]
+			tokenized_terms = sequence.pad_sequences([tokenized_terms],maxlen=max_term_len)[0]
 			polarity = value['polarity']
 			if(polarity=='conflict'):
 				continue
@@ -177,7 +177,7 @@ for sent in test_sentences:
 	txt = sent['text']
 	tokenized_txt = [word_index[x] for x in txt]
 	actual_len = len(tokenized_txt)
-	tokenized_txt = sequence.pad_sequences([tokenized_txt],maxlen=max_len, padding='post')[0]
+	tokenized_txt = sequence.pad_sequences([tokenized_txt],maxlen=max_len)[0]
 	if('aspectCats' in sent):
 		for pair in sent['aspectCats']:
 			attr, value = pair[0],pair[1]
@@ -193,7 +193,7 @@ for sent in test_sentences:
 		for pair in sent['aspectTerms']:
 			attr, value = pair[0],pair[1]
 			tokenized_terms = [word_index[x] for x in attr]
-			tokenized_terms = sequence.pad_sequences([tokenized_terms],maxlen=max_term_len, padding='post')[0]
+			tokenized_terms = sequence.pad_sequences([tokenized_terms],maxlen=max_term_len)[0]
 			polarity = value['polarity']
 			if(polarity=='conflict'):
 				continue
