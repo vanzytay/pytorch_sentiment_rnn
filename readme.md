@@ -55,6 +55,7 @@ We also support TD-LSTM (target-dependent LSTM)
 
 ```
 python train.py --batch-size 20 --rnn_type GRU --cuda --gpu 1 --lr 0.0001 --mdl TD-RNN --clip_norm 1 --opt Adam
+```
 
 ```
 [Epoch 50] Train Loss=0.641238689423
