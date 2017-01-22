@@ -5,6 +5,7 @@ from sklearn.metrics import accuracy_score
 import json
 import gzip
 from models.rnn import BasicRNN
+from models.td_rnn import TargetRNN
 import cPickle as pickle
 from datetime import datetime
 import os
@@ -51,7 +52,7 @@ class BaseExperiment:
         self.parser = argparse.ArgumentParser()
         self.parser.add_argument("--mode", dest="mode", type=str, metavar='<str>', default='term', help="Experiment Mode (term|aspect) (default=term)")
         self.parser.add_argument("--dataset", dest="dataset", type=str, metavar='<str>', default='Restaurants', help="Dataset (Laptop/Restaurants) (default=Restaurants)")
-        self.parser.add_argument("--mdl", dest="model_type", type=str, metavar='<str>', default='normal', help="Model type (reg|regp|breg|bregp) (default=regp)")
+        self.parser.add_argument("--mdl", dest="model_type", type=str, metavar='<str>', default='RNN', help="(RNN|TD-RNN)")
         self.parser.add_argument("--rnn_type", dest="rnn_type", type=str, metavar='<str>', default='LSTM', help="Recurrent unit type (lstm|gru|simple) (default=lstm)")
         self.parser.add_argument("--term_mdl", dest="term_model", type=str, metavar='<str>', default='mean', help="Model type for term sequences (default=mean)")
         self.parser.add_argument("--opt", dest="opt", type=str, metavar='<str>', default='Adam', help="Optimization algorithm (rmsprop|sgd|adagrad|adadelta|adam|adamax) (default=rmsprop)")
@@ -68,7 +69,7 @@ class BaseExperiment:
         self.parser.add_argument('--gpu', dest='gpu', type=int, metavar='<int>', default=0, help="Specify which GPU to use (default=0)")
         self.parser.add_argument("--hdim", dest='hidden_layer_size', type=int, metavar='<int>', default=300, help="Hidden layer size (default=50)")
         self.parser.add_argument("--lr", dest='learn_rate', type=float, metavar='<float>', default=0.001, help="Learning Rate")
-        self.parser.add_argument("--clip_norm", dest='clip_norm', type=int, metavar='<int>', default=1, help="Clip Norm value")
+        self.parser.add_argument("--clip_norm", dest='clip_norm', type=int, metavar='<int>', default=0, help="Clip Norm value")
         self.parser.add_argument("--trainable", dest='trainable', type=int, metavar='<int>', default=1, help="Trainable Word Embeddings (0|1)")
         self.parser.add_argument('--l2_reg', dest='l2_reg', type=float, metavar='<float>', default=0.0, help='L2 regularization, default=0')
         self.parser.add_argument('--eval', dest='eval', type=int, metavar='<int>', default=1, help='Epoch to evaluate results')
@@ -91,6 +92,8 @@ class BaseExperiment:
                     print("Using device:{} ".format(torch.cuda.current_device()))
                 torch.cuda.manual_seed(self.args.seed)
 
+        np.random.seed(self.args.seed)
+        random.seed(self.args.seed)
         # Load Data files for training
         if(self.args.toy):
             file_path = './store/{}_{}_{}.pkl'.format(self.args.dataset, self.args.mode, 'toy')
@@ -111,11 +114,12 @@ class BaseExperiment:
         print("Loaded environment")
         print("Creating Model...")
         self.model_name = self.args.aggregation + '_' + self.args.model_type
-        self.mdl = BasicRNN(self.args, len(self.env['word_index']),pretrained=self.env['glove'])
+        if(self.args.model_type=='TD-RNN'):
+            self.mdl = TargetRNN(self.args, len(self.env['word_index']),pretrained=self.env['glove'])
+        elif(self.args.model_type=='RNN'):
+            self.mdl = BasicRNN(self.args, len(self.env['word_index']),pretrained=self.env['glove'])
         if(self.args.cuda):
             self.mdl.cuda()
-        # self.mdl = AspectModel(len(self.env['word_index']), self.args, cat_index=self.env['cat_index'])
-        # self.make_dir()
 
     def make_dir(self):
         if(self.args.log==1):
@@ -159,25 +163,69 @@ class BaseExperiment:
             else: raise
 
     def evaluate(self, x, eval_type='test'):
-        # TODO : Implement Evaluate Function
+        ''' Evaluates normal RNN model
+        '''
         hidden = self.mdl.init_hidden(len(x))
-        # print(x)
         sentence, targets, actual_batch = self.make_batch(x, -1, evaluation=True)
         output, hidden = self.mdl(sentence, hidden)
         loss = self.criterion(output, targets).data
         print("Test loss={}".format(loss[0]))
+        accuracy = self.get_accuracy(output, targets)
+
+    def evaluate_target(self, x, eval_type='test'):
+        ''' Evaluates Target-RNN model
+        '''
+        sentence, targets, actual_batch = self.make_target_batch(x, -1, evaluation=True)
+        left_input, right_input = sentence[0], sentence[1]
+        if(sentence is None):
+            return None
+        left_hidden = self.mdl.init_hidden(actual_batch)
+        right_hidden = self.mdl.init_hidden(actual_batch)
+        left_hidden = repackage_hidden(left_hidden)
+        right_hidden = repackage_hidden(right_hidden)
+        output = self.mdl(left_input, right_input, left_hidden, right_hidden)
+        loss = self.criterion(output, targets).data[0]
+        print("Test loss={}".format(loss))
+        accuracy = self.get_accuracy(output, targets)
+       
+    def get_accuracy(self, output, targets):
         output = tensor_to_numpy(output)
         targets = tensor_to_numpy(targets)
         output = np.argmax(output, axis=1)
         dist = dict(Counter(output))
         print("Output Distribution={}".format(dist))
-
         acc = accuracy_score(targets, output)
         print("Accuracy={}".format(acc))
+        return acc
 
-    def load_embeddings(self):
-        # TODO: Implement Preload Glove Embeddings
-        pass
+    def pad_to_batch_max(self, x):
+        lengths = [len(y) for y in x]
+        max_len = np.max(lengths)
+        padded_tokens = sequence.pad_sequences(x, maxlen=max_len)
+        return torch.LongTensor(padded_tokens.tolist()).transpose(0,1)
+
+    def make_target_batch(self, x, i, evaluation=False):
+        ''' target dependent batches
+        '''
+        if(i>=0):
+            batch = x[int(i * self.args.batch_size):int(i * self.args.batch_size)+self.args.batch_size]
+        else:
+            batch = x
+        if(len(batch)==0):
+            return None, None, self.args.batch_size
+        left_tensor = self.pad_to_batch_max([x['left'] for x in batch])
+        right_tensor = self.pad_to_batch_max([x['right'] for x in batch][::-1])
+        targets = torch.LongTensor(np.array([x['polarity'] for x in batch], dtype=np.int32).tolist())
+        assert(left_tensor.size(1)==right_tensor.size(1))
+        actual_batch = left_tensor.size(1)
+        if(self.args.cuda):
+            left_tensor = left_tensor.cuda()
+            right_tensor = right_tensor.cuda()
+            targets = targets.cuda()  
+        left_tensor = Variable(left_tensor)
+        right_tensor = Variable(right_tensor)
+        targets = Variable(targets, volatile=evaluation)      
+        return [left_tensor, right_tensor], targets, actual_batch
 
     def make_batch(self, x, i, evaluation=False):
         ''' -1 to take all
@@ -189,11 +237,8 @@ class BaseExperiment:
             batch = x
         if(len(batch)==0):
             return None,None, self.args.batch_size
-        tokenized_txt = [x['tokenized_txt'] for x in batch]
-        lengths = [len(x) for x in tokenized_txt]
-        max_len = np.max(lengths)
-        padded_tokens = sequence.pad_sequences(tokenized_txt,maxlen=max_len)
-        sentence = torch.LongTensor(padded_tokens.tolist()).transpose(0,1)
+
+        sentence = self.pad_to_batch_max([x['tokenized_txt'] for x in batch])
         targets = torch.LongTensor(np.array([x['polarity'] for x in batch], dtype=np.int32).tolist())
         actual_batch = sentence.size(1)
         if(self.args.cuda):
@@ -215,49 +260,79 @@ class BaseExperiment:
         elif(self.args.opt=='Adadelta'):
             self.optimizer =  optim.Adadelta(self.mdl.parameters(), lr=self.args.learn_rate)
 
+    def train_target_batch(self, i):
+        ''' Trains a regular Target-Dependent RNN model
+        '''
+        sentence, targets, actual_batch = self.make_target_batch(self.train_set, i)
+        left_input, right_input = sentence[0], sentence[1]
+        if(sentence is None):
+            return None
+
+        # Do I need to init both? Can I just pass in 0 vectors?
+        left_hidden = self.mdl.init_hidden(actual_batch)
+        right_hidden = self.mdl.init_hidden(actual_batch)
+
+        left_hidden = repackage_hidden(left_hidden)
+        right_hidden = repackage_hidden(right_hidden)
+        self.mdl.zero_grad()
+        output = self.mdl(left_input, right_input, left_hidden, right_hidden)
+        loss = self.criterion(output, targets)
+        loss.backward()
+        if(self.args.clip_norm>0):
+            coeff = clip_gradient(self.mdl, self.args.clip_norm)
+            for p in self.mdl.parameters():
+                p.grad.mul_(coeff)
+        self.optimizer.step()
+        return loss.data[0]
+
+    def train_batch(self, i):
+        ''' Trains a regular RNN model
+        '''
+        sentence, targets, actual_batch = self.make_batch(self.train_set, i)
+        if(sentence is None):
+            return None
+        hidden = self.mdl.init_hidden(actual_batch)
+        hidden = repackage_hidden(hidden)
+        self.mdl.zero_grad()
+        output, hidden = self.mdl(sentence, hidden)
+        loss = self.criterion(output, targets)
+        loss.backward()
+        if(self.args.clip_norm>0):
+            coeff = clip_gradient(self.mdl, self.args.clip_norm)
+            for p in self.mdl.parameters():
+                p.grad.mul_(coeff)
+        self.optimizer.step()
+        return loss.data[0]
+
     def train(self):
         print("Starting training")
         self.criterion = nn.CrossEntropyLoss()
         print(self.args)
         total_loss = 0
         num_batches = int(len(self.train_set) / self.args.batch_size) + 1
-        hidden = self.mdl.init_hidden(self.args.batch_size)
         self.select_optimizer()
-        for epoch in range(1,self.args.epochs):
+        for epoch in range(1,self.args.epochs+1):
             random.shuffle(self.train_set)
             print("========================================================================")
             losses = []
             actual_batch = self.args.batch_size
             for i in range(num_batches):
-                sentence, targets, actual_batch = self.make_batch(self.train_set, i)
-                if(sentence is None):
-                    continue
-                hidden = self.mdl.init_hidden(actual_batch)
-                # if(actual_batch!=self.args.batch_size):
-                #     print("[Warning] Ignoring {} samples, you should probably change the batch size".
-                #             format(self.args.batch_size-actual_batch))
-                #     continue
-                hidden = repackage_hidden(hidden)
-                # print(hidden)
-                self.mdl.zero_grad()
-                output, hidden = self.mdl(sentence, hidden)
-                # print(output)
-                loss = self.criterion(output, targets)
-                loss.backward()
-                # clipped_lr = self.args.learn_rate * clip_gradient(self.mdl, self.args.clip_norm)
-                # for p in self.mdl.parameters():
-                #     p.data.add_(-clipped_lr, p.grad.data)
-                self.optimizer.step()
-                losses.append(loss.data[0])
+                if(self.args.model_type in ['TD-RNN']):
+                    # if(i>0):
+                    #     break
+                    loss = self.train_target_batch(i)
+                else:
+                    loss = self.train_batch(i)
+                if(loss is None):
+                    continue    
+                losses.append(loss)
             print("[Epoch {}] Train Loss={}".format(epoch, np.mean(losses)))
             if(epoch >0 and epoch % self.args.eval==0):
-                self.evaluate(self.test_set)
-
-                # # Need to figure out how to Clip Gradient with Optimizer 
-                # # Waiting for feature? 
-                # clipped_lr = self.args.learn_rate * clip_gradient(self.mdl, self.args.clip_norm)
-                # for p in self.mdl.parameters():
-                #     p.data.add_(-clipped_lr, p.grad.data)
+                if(self.args.model_type in ['TD-RNN']):
+                    self.evaluate_target(self.test_set)
+                else:
+                    self.evaluate(self.test_set)
+               
             
 
 

@@ -19,7 +19,7 @@ class BasicRNN(nn.Module):
         print("Initialized {} model".format(self.args.rnn_type))
 
     def init_weights(self, pretrained):
-        initrange = 0.01
+        initrange = 0.1
         if(pretrained is not None):
             print("Setting Pretrained Embeddings")
             pretrained = pretrained.astype(np.float32)
@@ -45,6 +45,10 @@ class BasicRNN(nn.Module):
         return decoded, hidden
 
     def init_hidden(self, bsz):
+
+
+        weight = next(self.parameters())
+
         weight = next(self.parameters()).data
         if (self.args.rnn_type == 'LSTM'):
             return (Variable(weight.new(self.args.rnn_layers, bsz, self.args.rnn_size).zero_()),

@@ -176,6 +176,10 @@ def make_terms(txt, pair):
 	if(target_positions is None):
 		print("[Warning] Target not found in text!")
 		return None
+	left, right = target_positions[0][0], target_positions[0][1]
+	if(len(left)==0 or len(right)==0):
+		print("[Warning] left or right==0")
+		return None
 	# tokenized_terms = sequence.pad_sequences([tokenized_terms],maxlen=max_term_len)[0]
 	polarity = value['polarity']
 	if(polarity=='conflict'):
@@ -191,8 +195,8 @@ def make_terms(txt, pair):
 	'term_id':tokenized_terms,
 	'term_len':term_len,
 	'polarity':polarity,
-	'left':target_positions[0][0],
-	'right':target_positions[0][1],
+	'left':left,
+	'right':right,
 	'pointers':target_positions[1]
 	}
 	# tmp = [tokenized_txt, actual_len, tokenized_terms, term_len, polarity]
