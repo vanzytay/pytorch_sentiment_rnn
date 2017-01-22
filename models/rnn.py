@@ -33,7 +33,6 @@ class BasicRNN(nn.Module):
         self.decoder.weight.data.uniform_(-initrange, initrange)
 
     def forward(self, input, hidden):
-        # print("Forwarding...")
         emb = self.encoder(input)
         output, hidden = self.rnn(emb, hidden)
         last = Variable(torch.LongTensor([output.size()[0]-1]))

@@ -9,19 +9,31 @@ from tqdm import tqdm
 import string
 import nltk
 import os
+import re
 
 dataset = 'Restaurants'
-mode = 'aspect'
+mode = 'term'
 train_sentences = []
 test_sentences = []
 aspectTerms = []
 aspectCats = []
 words = []
 toy = False
+one_hot = False
 
 from string import punctuation
 def strip_punctuation(s):
-    return ''.join(c for c in s if c not in punctuation)
+	return s.translate(string.maketrans("",""), string.punctuation)
+    # return ''.join(c for c in s if c not in punctuation)
+
+def process_text(x):
+	x = x.lower()
+	x = re.sub('[^A-Za-z0-9]+', ' ', x)
+	x = x.split(' ')
+	x = [strip_punctuation(y) for y in x]
+	# ptxt = nltk.word_tokenize(ptxt)
+	return x
+
 
 # Parse Training File 
 tree = ET.ElementTree(file='./datasets/{}_Train.xml'.format(dataset))
@@ -29,10 +41,11 @@ for index, sentence in enumerate(tree.iter(tag='sentence')):
 	s = {}
 	for elem in sentence.iter():
 		if(elem.tag=='text'):
-			ptxt = strip_punctuation(elem.text.lower())
-			# ptxt = nltk.word_tokenize(ptxt)
-			ptxt = ptxt.split(' ')
-			# ptxt = [x.translate(None, string.punctuation) for x in ptxt]
+			# ptxt = strip_punctuation(elem.text.lower())
+			# # ptxt = nltk.word_tokenize(ptxt)
+			# ptxt = ptxt.split(' ')
+			ptxt = process_text(elem.text)
+
 			s['text'] = ptxt
 			words += ptxt
 		elif(elem.tag=='aspectTerms' and mode=='term'):
@@ -41,9 +54,7 @@ for index, sentence in enumerate(tree.iter(tag='sentence')):
 				attr = at.attrib
 				if('term' not in attr):
 					continue
-				txt = strip_punctuation(at.attrib['term'].lower())
-				txt = txt.split(' ')
-				#txt = [x.translate(None, string.punctuation) for x in txt]
+				txt = process_text(at.attrib['term'])
 				print(txt)
 				words += txt
 				s['aspectTerms'].append([txt, at.attrib])
@@ -66,13 +77,9 @@ for index, sentence in enumerate(tree.iter(tag='sentence')):
 	s = {}
 	for elem in sentence.iter():
 		if(elem.tag=='text'):
-			ptxt = strip_punctuation(elem.text.lower())
-			ptxt = ptxt.split(' ')
-			# ptxt = nltk.word_tokenize(ptxt)
-			# ptxt = [x.translate(None, string.punctuation) for x in ptxt]
-			# print(ptxt)
-			s['text'] = ptxt
+			ptxt = process_text(elem.text)
 			all_text.append(ptxt)
+			s['text'] = ptxt
 			words += ptxt
 		elif(elem.tag=='aspectTerms' and mode=='term'):
 			s['aspectTerms'] = []
@@ -80,9 +87,7 @@ for index, sentence in enumerate(tree.iter(tag='sentence')):
 				attr = at.attrib
 				if('term' not in attr):
 					continue
-				txt = strip_punctuation(at.attrib['term'].lower())
-				txt = txt.split(' ')
-				# txt = [x.translate(None, string.punctuation) for x in txt]
+				txt = process_text(at.attrib['term'])
 				print(txt)
 				words += txt
 				s['aspectTerms'].append([txt, at.attrib])
@@ -133,6 +138,87 @@ sentiment_map = {
 	'negative':0
 }
 
+def split_terms(tokens, terms):
+	''' Split tokens based on terms
+	Returns useful meta information regarding positions etc.
+	'''
+	if(len(terms)==1):
+		# split at term
+		term = terms[0]
+		if(term not in tokens):
+			return None
+		start_pos = tokens.index(term)
+		end_pos = start_pos
+		left = tokens[:end_pos+1]
+		right = tokens[start_pos:]
+	else:
+		start = terms[0]
+		end = terms[-1]
+		if(start not in tokens or end not in tokens):
+			print('====================')
+			print(tokens)
+			print([index_word[x] for x in tokens])
+			print([index_word[x] for x in terms])
+			return None
+		start_pos = tokens.index(start)
+		end_pos = tokens.index(end)
+		# Overlap the terms
+		left = tokens[:end_pos+1]
+		right = tokens[start_pos:]
+	return [[left, right], [start_pos, end_pos]]
+		
+def make_terms(txt, pair):
+	attr, value = pair[0],pair[1]
+	term_len = len(attr)
+	tokenized_terms = [word_index[x] for x in attr]
+
+	target_positions = split_terms(txt, tokenized_terms)
+	if(target_positions is None):
+		print("[Warning] Target not found in text!")
+		return None
+	# tokenized_terms = sequence.pad_sequences([tokenized_terms],maxlen=max_term_len)[0]
+	polarity = value['polarity']
+	if(polarity=='conflict'):
+		return None
+	polarity = sentiment_map[polarity]
+	if(one_hot==True):
+		vec = np.zeros(3)
+		vec[polarity] = 1
+		polarity = vec
+	tmp = {
+	'tokenized_txt':tokenized_txt,
+	'actual_len':actual_len,
+	'term_id':tokenized_terms,
+	'term_len':term_len,
+	'polarity':polarity,
+	'left':target_positions[0][0],
+	'right':target_positions[0][1],
+	'pointers':target_positions[1]
+	}
+	# tmp = [tokenized_txt, actual_len, tokenized_terms, term_len, polarity]
+	return tmp
+
+def make_aspects(txt, pair):
+	attr, value = pair[0],pair[1]
+	attr_id = cat_index[attr]
+	polarity = value['polarity']
+	if(polarity=='conflict'):
+		return None
+	polarity = sentiment_map[polarity]
+	if(one_hot==True):
+		vec = np.zeros(3)
+		vec[polarity] = 1
+		polarity = vec
+	tmp = {
+	'tokenized_txt':tokenized_txt,
+	'actual_len':actual_len,
+	'aspect_id':[attr_id],
+	'aspect_len':1,
+	'polarity':polarity
+	}
+	# tmp = [tokenized_txt, actual_len, [attr_id], 0, polarity]
+	return tmp
+
 # Converting to Model Friendly Format (Categories)
 training_set, testing_set = [], []
 if(toy==True):
@@ -143,68 +229,36 @@ for sent in train_sentences:
 	txt = sent['text']
 	tokenized_txt = [word_index[x] for x in txt]
 	actual_len = len(tokenized_txt)
-	tokenized_txt = sequence.pad_sequences([tokenized_txt],maxlen=max_len)[0]
+	# tokenized_txt = sequence.pad_sequences([tokenized_txt],maxlen=max_len)[0]
 	if('aspectCats' in sent and mode=='aspect'):
-		# print(len(sent['aspectCats']))
 		for pair in sent['aspectCats']:
-			attr, value = pair[0],pair[1]
-			attr_id = cat_index[attr]
-			polarity = value['polarity']
-			if(polarity=='conflict'):
-				continue
-			polarity = sentiment_map[polarity]
-			vec = np.zeros(3)
-			vec[polarity] = 1
-			tmp = [tokenized_txt, actual_len, attr_id, polarity]
+			tmp = make_aspects(tokenized_txt, pair)
+			if(tmp is not None):
+				training_set.append(tmp)
 			training_set.append(tmp)
 	elif('aspectTerms' in sent and mode=='term'):
 		for pair in sent['aspectTerms']:
-			attr, value = pair[0],pair[1]
-			tokenized_terms = [word_index[x] for x in attr]
-			tokenized_terms = sequence.pad_sequences([tokenized_terms],maxlen=max_term_len)[0]
-			polarity = value['polarity']
-			if(polarity=='conflict'):
-				continue
-			polarity = sentiment_map[polarity]
-			vec = np.zeros(3)
-			vec[polarity] = 1
-			term_len = len(attr)
-			tmp = [tokenized_txt, actual_len, tokenized_terms, term_len, polarity]
-			print(tmp)
-			training_set.append(tmp)
+			tmp = make_terms(tokenized_txt, pair)
+			if(tmp is not None):
+				training_set.append(tmp)
 
 for sent in test_sentences:
 	txt = sent['text']
 	tokenized_txt = [word_index[x] for x in txt]
 	actual_len = len(tokenized_txt)
-	tokenized_txt = sequence.pad_sequences([tokenized_txt],maxlen=max_len)[0]
+	# tokenized_txt = sequence.pad_sequences([tokenized_txt],maxlen=max_len)[0]
 	if('aspectCats' in sent):
 		for pair in sent['aspectCats']:
-			attr, value = pair[0],pair[1]
-			polarity = value['polarity']
-			vec = np.zeros(3)
-			if(polarity=='conflict'):
-				continue
-			polarity = sentiment_map[polarity]
-			vec[polarity] = 1
-			tmp = [tokenized_txt, actual_len, attr_id, polarity]
+			tmp = make_aspects(txt, pair)
+			if(tmp is not None):
+				testing_set.append(tmp)
 			testing_set.append(tmp)
 	elif('aspectTerms' in sent):
 		for pair in sent['aspectTerms']:
-			attr, value = pair[0],pair[1]
-			tokenized_terms = [word_index[x] for x in attr]
-			tokenized_terms = sequence.pad_sequences([tokenized_terms],maxlen=max_term_len)[0]
-			polarity = value['polarity']
-			if(polarity=='conflict'):
-				continue
-			polarity = sentiment_map[polarity]
-			vec = np.zeros(3)
-			vec[polarity] = 1
-			term_len = len(attr)
-			tmp = [tokenized_txt, actual_len, tokenized_terms, term_len, polarity]
-			print(tmp)
+			tmp = make_terms(tokenized_txt, pair)
 			# print("Adding to test set")
-			testing_set.append(tmp)
+			if(tmp is not None):
+				testing_set.append(tmp)
 
 print("Partioning into Dev Set")
 import random
@@ -260,7 +314,6 @@ else:
 	
 	print("Finished making glove dictionary")
 
-
 matrix = np.zeros((2, dimensions))
 #print(matrix.shape)
 
@@ -271,7 +324,6 @@ for i in tqdm(range(2, len(word_index))):
 	word = index_word[i]
 	if(word in glove):
 		vec = glove[word]
-
 		if(save==True):
 			filtered_glove[word] = glove[word]
 		# print(vec.shape)

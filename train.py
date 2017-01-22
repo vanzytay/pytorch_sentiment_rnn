@@ -18,6 +18,8 @@ from tqdm import tqdm
 import torch.nn as nn
 from torch.autograd import Variable
 import torch.optim as optim
+from keras.preprocessing import sequence
+from collections import Counter
 
 def tensor_to_numpy(x):
     ''' Need to cast before calling numpy()
@@ -42,13 +44,13 @@ def repackage_hidden(h):
         return tuple(repackage_hidden(v) for v in h)
 
 class BaseExperiment:
-    ''' Implements a base experiment class for TensorFLow
+    ''' Implements a base experiment class for Aspect-Based Sentiment Analysis on SemEval 2014
     '''
     def __init__(self):
-        self.dataset = 'Restaurants'
-        self.mode = 'aspect'
         self.uuid = datetime.now().strftime("%d_%H:%M:%S")
         self.parser = argparse.ArgumentParser()
+        self.parser.add_argument("--mode", dest="mode", type=str, metavar='<str>', default='term', help="Experiment Mode (term|aspect) (default=term)")
+        self.parser.add_argument("--dataset", dest="dataset", type=str, metavar='<str>', default='Restaurants', help="Dataset (Laptop/Restaurants) (default=Restaurants)")
         self.parser.add_argument("--mdl", dest="model_type", type=str, metavar='<str>', default='normal', help="Model type (reg|regp|breg|bregp) (default=regp)")
         self.parser.add_argument("--rnn_type", dest="rnn_type", type=str, metavar='<str>', default='LSTM', help="Recurrent unit type (lstm|gru|simple) (default=lstm)")
         self.parser.add_argument("--term_mdl", dest="term_model", type=str, metavar='<str>', default='mean', help="Model type for term sequences (default=mean)")
@@ -82,18 +84,23 @@ class BaseExperiment:
             if not self.args.cuda:
                 print("WARNING: You have a CUDA device, so you should probably run with --cuda")
             else:
+                print("There are {} CUDA devices".format(torch.cuda.device_count()))
+                if(self.args.gpu > 0):
+                    print("Setting torch GPU to {}".format(self.args.gpu))
+                    torch.cuda.set_device(self.args.gpu)
+                    print("Using device:{} ".format(torch.cuda.current_device()))
                 torch.cuda.manual_seed(self.args.seed)
 
         # Load Data files for training
         if(self.args.toy):
-            file_path = './store/{}_{}_{}.pkl'.format(self.dataset, self.mode, 'toy')
+            file_path = './store/{}_{}_{}.pkl'.format(self.args.dataset, self.args.mode, 'toy')
         else:
-            file_path = './store/{}_{}.pkl'.format(self.dataset, self.mode)
+            file_path = './store/{}_{}.pkl'.format(self.args.dataset, self.args.mode)
 
         with open(file_path,'r') as f:
             self.env = pickle.load(f)
 
-        print(self.env.keys())
+        print('Stored Environment:{}'.format(self.env.keys()))
         self.train_set = self.env['train']
         self.test_set = self.env['test']
         self.dev_set = self.env['dev']
@@ -160,10 +167,11 @@ class BaseExperiment:
         loss = self.criterion(output, targets).data
         print("Test loss={}".format(loss[0]))
         output = tensor_to_numpy(output)
-        print(output)
         targets = tensor_to_numpy(targets)
         output = np.argmax(output, axis=1)
-        print(output)
+        dist = dict(Counter(output))
+        print("Output Distribution={}".format(dist))
+
         acc = accuracy_score(targets, output)
         print("Accuracy={}".format(acc))
 
@@ -179,12 +187,14 @@ class BaseExperiment:
         else:
             
             batch = x
-            # if(evaluation==True):
-            #     print(batch[0:10])
         if(len(batch)==0):
             return None,None, self.args.batch_size
-        sentence = torch.LongTensor(np.array([x[0] for x in batch]).tolist()).transpose(0,1)
-        targets = torch.LongTensor(np.array([x[3] for x in batch], dtype=np.int32).tolist())
+        tokenized_txt = [x['tokenized_txt'] for x in batch]
+        lengths = [len(x) for x in tokenized_txt]
+        max_len = np.max(lengths)
+        padded_tokens = sequence.pad_sequences(tokenized_txt,maxlen=max_len)
+        sentence = torch.LongTensor(padded_tokens.tolist()).transpose(0,1)
+        targets = torch.LongTensor(np.array([x['polarity'] for x in batch], dtype=np.int32).tolist())
         actual_batch = sentence.size(1)
         if(self.args.cuda):
             sentence = sentence.cuda()
@@ -223,10 +233,10 @@ class BaseExperiment:
                 if(sentence is None):
                     continue
                 hidden = self.mdl.init_hidden(actual_batch)
-                if(actual_batch!=self.args.batch_size):
-                    print("[Warning] Ignoring {} samples, you should probably change the batch size".
-                            format(self.args.batch_size-actual_batch))
-                    continue
+                # if(actual_batch!=self.args.batch_size):
+                #     print("[Warning] Ignoring {} samples, you should probably change the batch size".
+                #             format(self.args.batch_size-actual_batch))
+                #     continue
                 hidden = repackage_hidden(hidden)
                 # print(hidden)
                 self.mdl.zero_grad()

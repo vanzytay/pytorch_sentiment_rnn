@@ -24105,7 +24105,7 @@
         <aspectTerms>
             <aspectTerm term="atmosphere" polarity="positive" from="5" to="15"/>
             <aspectTerm term="music" polarity="positive" from="48" to="53"/>
-            <aspectTerm term="dress cod" polarity="negative" from="54" to="63"/>
+            <aspectTerm term="dress code" polarity="negative" from="54" to="63"/>
         </aspectTerms>
         <aspectCategories>
             <aspectCategory category="ambience" polarity="positive"/>
@@ -25915,7 +25915,7 @@
         <text>Interesting other dishes for a change include chicken in curry sauce and salmon caserole.</text>
         <aspectTerms>
             <aspectTerm term="dishes" polarity="positive" from="18" to="24"/>
-            <aspectTerm term="chicken in curry sauc" polarity="positive" from="46" to="67"/>
+            <aspectTerm term="chicken in curry sauce" polarity="positive" from="46" to="67"/>
             <aspectTerm term="salmon caserole" polarity="positive" from="73" to="88"/>
         </aspectTerms>
         <aspectCategories>
@@ -26210,7 +26210,7 @@
     <sentence id="2794">
         <text>They should have called it mascarpone with chocolate chips-good but a far cry from what the name implies.</text>
         <aspectTerms>
-            <aspectTerm term="mascarpone with chocolate chip" polarity="conflict" from="27" to="57"/>
+            <aspectTerm term="mascarpone with chocolate chips" polarity="conflict" from="27" to="57"/>
         </aspectTerms>
         <aspectCategories>
             <aspectCategory category="food" polarity="conflict"/>
