@@ -21,6 +21,7 @@ from torch.autograd import Variable
 import torch.optim as optim
 from keras.preprocessing import sequence
 from collections import Counter
+import time
 
 def tensor_to_numpy(x):
     ''' Need to cast before calling numpy()
@@ -52,7 +53,7 @@ class BaseExperiment:
         self.parser = argparse.ArgumentParser()
         self.parser.add_argument("--mode", dest="mode", type=str, metavar='<str>', default='term', help="Experiment Mode (term|aspect) (default=term)")
         self.parser.add_argument("--dataset", dest="dataset", type=str, metavar='<str>', default='Restaurants', help="Dataset (Laptop/Restaurants) (default=Restaurants)")
-        self.parser.add_argument("--mdl", dest="model_type", type=str, metavar='<str>', default='RNN', help="(RNN|TD-RNN)")
+        self.parser.add_argument("--mdl", dest="model_type", type=str, metavar='<str>', default='RNN', help="(RNN|TD-RNN|ATT-RNN)")
         self.parser.add_argument("--rnn_type", dest="rnn_type", type=str, metavar='<str>', default='LSTM', help="Recurrent unit type (lstm|gru|simple) (default=lstm)")
         self.parser.add_argument("--term_mdl", dest="term_model", type=str, metavar='<str>', default='mean', help="Model type for term sequences (default=mean)")
         self.parser.add_argument("--opt", dest="opt", type=str, metavar='<str>', default='Adam', help="Optimization algorithm (rmsprop|sgd|adagrad|adadelta|adam|adamax) (default=rmsprop)")
@@ -61,10 +62,11 @@ class BaseExperiment:
         self.parser.add_argument("--batch-size", dest="batch_size", type=int, metavar='<int>', default=20, help="Batch size (default=256)")
         self.parser.add_argument("--rnn_layers", dest="rnn_layers", type=int, metavar='<int>', default=1, help="Number of RNN layers")
         self.parser.add_argument("--rnn_direction", dest="rnn_direction", type=str, metavar='<str>', default='uni', help="Direction of RNN")
-        self.parser.add_argument("--aggregation", dest="aggregation", type=str, metavar='<str>', default='mot', help="The aggregation method for regp and bregp types (mot|attsum|attmean) (default=mot)")
+        self.parser.add_argument("--aggregation", dest="aggregation", type=str, metavar='<str>', default='mean', help="The aggregation method for regp and bregp types (mot|attsum|attmean) (default=mot)")
         self.parser.add_argument("--dropout", dest="dropout_prob", type=float, metavar='<float>', default=0.5, help="The dropout probability. To disable, give a negative number (default=0.5)")
         self.parser.add_argument("--pretrained", dest="pretrained", type=int, metavar='<int>', default=1, help="Whether to use pretrained or not")
         self.parser.add_argument("--epochs", dest="epochs", type=int, metavar='<int>', default=50, help="Number of epochs (default=50)")
+        self.parser.add_argument("--attention_width", dest="attention_width", type=int, metavar='<int>', default=5, help="Width of attention (default=5)")
         self.parser.add_argument("--maxlen", dest="maxlen", type=int, metavar='<int>', default=0, help="Maximum allowed number of words during training. '0' means no limit (default=0)")
         self.parser.add_argument('--gpu', dest='gpu', type=int, metavar='<int>', default=0, help="Specify which GPU to use (default=0)")
         self.parser.add_argument("--hdim", dest='hidden_layer_size', type=int, metavar='<int>', default=300, help="Hidden layer size (default=50)")
@@ -116,7 +118,7 @@ class BaseExperiment:
         self.model_name = self.args.aggregation + '_' + self.args.model_type
         if(self.args.model_type=='TD-RNN'):
             self.mdl = TargetRNN(self.args, len(self.env['word_index']),pretrained=self.env['glove'])
-        elif(self.args.model_type=='RNN'):
+        elif(self.args.model_type in ['RNN','ATT-RNN']):
             self.mdl = BasicRNN(self.args, len(self.env['word_index']),pretrained=self.env['glove'])
         if(self.args.cuda):
             self.mdl.cuda()
@@ -312,21 +314,21 @@ class BaseExperiment:
         num_batches = int(len(self.train_set) / self.args.batch_size) + 1
         self.select_optimizer()
         for epoch in range(1,self.args.epochs+1):
+            t0 = time.clock()
             random.shuffle(self.train_set)
             print("========================================================================")
             losses = []
             actual_batch = self.args.batch_size
             for i in range(num_batches):
                 if(self.args.model_type in ['TD-RNN']):
-                    # if(i>0):
-                    #     break
                     loss = self.train_target_batch(i)
                 else:
                     loss = self.train_batch(i)
                 if(loss is None):
                     continue    
                 losses.append(loss)
-            print("[Epoch {}] Train Loss={}".format(epoch, np.mean(losses)))
+            t1 = time.clock()
+            print("[Epoch {}] Train Loss={} T={}s".format(epoch, np.mean(losses),t1-t0))
             if(epoch >0 and epoch % self.args.eval==0):
                 if(self.args.model_type in ['TD-RNN']):
                     self.evaluate_target(self.test_set)
