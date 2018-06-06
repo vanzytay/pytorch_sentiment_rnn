@@ -1,6 +1,6 @@
 # Sentiment Analysis with Pytorch [WIP]
 
-UPDATE/NOTE: Hi all, I do not work on this repository anymore! Please use at your own discretion. In fact, this was just me testing Pytorch when it first came out. As I fundamentally code in TF, I wouldn't be able to answer any questions on this repo. Plus, I coded this about more than a year ago. Thanks! 
+**UPDATE/NOTE: Hi all, I do not work on this repository anymore! Please use at your own discretion since I would consider it strongly deprecated. In fact, this was just me testing Pytorch when it first came out. As I fundamentally code in TF, I wouldn't be able to answer any questions on this repo. Plus, I coded this about more than a year ago. Thanks!** 
 
 Pytorch Example For Aspect-based Sentiment Analysis with RNN / GRUs / LSTMs on SemEval 2014. 
 
